@@ -81,7 +81,7 @@ class OccupancyClearingTests(unittest.TestCase):
             "available",
         )
 
-    def test_unavailable_status_preserves_session_and_extensions(self):
+    def test_unavailable_status_preserves_session(self):
         prev_root = {
             "123": {
                 "ports": {"1": "Charging"},
@@ -96,14 +96,9 @@ class OccupancyClearingTests(unittest.TestCase):
             }
         }
 
-        cleared = poller.enrich_stations_with_port_sessions(prev_root, stations, {})
+        poller.enrich_stations_with_port_sessions(prev_root, stations)
 
-        self.assertEqual(cleared, [])
         self.assertEqual(
             stations["123"]["port_sessions"]["1"]["started_at"],
             "2026-07-25T10:00:00+00:00",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()
