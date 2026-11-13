@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "firebase-tools": "^13.35.1"
+  },
+  "overrides": {
+    "uuid": "9.0.1"
+  }
+}
