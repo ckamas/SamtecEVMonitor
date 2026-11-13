@@ -49,11 +49,15 @@
             );
         }
         /* TV / wall: add ?kiosk=1 to the URL */
+        /* Scale all rem-based sizes with the screen width (24px at 1920 wide) and use the full width. */
+        html:has(body.kiosk-mode) {
+            font-size: max(16px, 1.25vw);
+        }
         body.kiosk-mode {
             font-size: 1.0625rem;
         }
         body.kiosk-mode #main-wrap {
-            max-width: 96rem;
+            max-width: none;
         }
         body.kiosk-mode h1 {
             font-size: clamp(1.5rem, 4.5vw, 2.75rem);

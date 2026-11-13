@@ -5,4 +5,4 @@ exec chromium --kiosk --noerrdialogs --disable-infobars --no-first-run \
   --ozone-platform=wayland --password-store=basic \
   --disable-session-crashed-bubble --disable-features=Translate \
   --user-data-dir="$HOME/.config/chargepoint-kiosk" \
-  http://127.0.0.1:8080/
+  'http://127.0.0.1:8080/?kiosk=1'
