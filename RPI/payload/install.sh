@@ -16,7 +16,7 @@ for i in $(seq 120); do curl -sfI https://deb.debian.org >/dev/null && break; sl
 
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  default-jre-headless nodejs npm python3-venv openssl
+  default-jre-headless nodejs npm python3-venv openssl cec-utils
 
 mkdir -p "$APP/tools/firebase" "$STATE"
 cp "$SRC"/{poller.py,index.html,requirements.txt,database.rules.json,token_server.py,run.sh,kiosk.sh,screen.sh} "$APP/"

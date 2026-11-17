@@ -138,5 +138,6 @@ full-screen Chromium, so it needs no Firebase credentials (a throwaway service-a
    up and the Pi reports "waiting for token".
 
 Services: `chargepoint` (emulator + poller + web, port 8080), `chargepoint-token` (paste page,
-port 8081), `chargepoint-screen.timer` (HDMI off 18:00–07:00). Logs: `/var/log/chargepoint-install.log`,
+port 8081), `chargepoint-screen.timer` (HDMI off 18:00–07:00, TV put in standby / woken over HDMI-CEC; requires
+**AQUOS LINK** enabled in the TV menu, otherwise the TV will not wake). Logs: `/var/log/chargepoint-install.log`,
 `journalctl -u chargepoint`. Status: `/var/lib/chargepoint/status`.
