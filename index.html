@@ -37,8 +37,21 @@
             0%, 100% { filter: drop-shadow(0 0 7px rgba(220, 38, 38, 0.95)); opacity: 1; }
             50% { filter: drop-shadow(0 0 18px rgba(248, 113, 113, 1)); opacity: 0.9; }
         }
-        .car-charging { animation: charge-pulse 2s ease-in-out infinite; }
-        .car-overdue { animation: overdue-pulse 1.35s ease-in-out infinite; }
+        @keyframes done-pulse {
+            0%, 100% { filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.95)); opacity: 1; }
+            50% { filter: drop-shadow(0 0 20px rgba(248, 113, 113, 1)); opacity: 0.9; }
+        }
+        @keyframes over-pulse {
+            0%, 100% { filter: drop-shadow(0 0 8px rgba(250, 204, 21, 0.95)); opacity: 1; }
+            50% { filter: drop-shadow(0 0 20px rgba(253, 224, 71, 1)); opacity: 0.9; }
+        }
+        @keyframes ok-pulse {
+            0%, 100% { filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.9)); opacity: 1; }
+            50% { filter: drop-shadow(0 0 14px rgba(74, 222, 128, 1)); opacity: 0.95; }
+        }
+        .car-ok { animation: ok-pulse 2s ease-in-out infinite; }
+        .car-done { animation: done-pulse 1.35s ease-in-out infinite; }
+        .car-over { animation: over-pulse 1.35s ease-in-out infinite; }
         .stall-lines {
             background-image: repeating-linear-gradient(
                 90deg,
@@ -51,11 +64,23 @@
         /* TV / wall: add ?kiosk=1 to the URL */
         /* Scale all rem-based sizes with the screen width (24px at 1920 wide) and use the full width. */
         html:has(body.kiosk-mode) {
-            font-size: max(16px, 1.25vw);
+            font-size: max(16px, 1.6vw);
         }
         body.kiosk-mode {
             font-size: 1.0625rem;
+            font-weight: 600;
         }
+        /* Edge to edge: minimal page padding, grid fills the remaining height */
+        body.kiosk-mode #main-wrap {
+            padding: 0.75rem 1rem;
+        }
+        body.kiosk-mode header { margin-bottom: 1rem; padding-bottom: 0.75rem; }
+        body.kiosk-mode section { margin-bottom: 1rem; }
+        /* Higher-contrast text for viewing from across the room */
+        body.kiosk-mode .text-stone-400,
+        body.kiosk-mode .text-stone-500,
+        body.kiosk-mode .text-stone-600 { color: #e7e5e4; }
+        body.kiosk-mode svg.car { max-height: none; }
         body.kiosk-mode #main-wrap {
             max-width: none;
         }
@@ -67,14 +92,14 @@
             margin-top: 0.75rem;
         }
         body.kiosk-mode h2 {
-            font-size: 0.7rem;
-            margin-bottom: 0.9rem;
+            font-size: 0.8rem;
+            margin-bottom: 0.6rem;
         }
         body.kiosk-mode #parking-lot {
             gap: clamp(0.9rem, 1.2vw, 1.4rem);
         }
         @media (min-width: 1024px) {
-            body.kiosk-mode #parking-lot { gap: 1.4rem; }
+            body.kiosk-mode #parking-lot { gap: 1rem; }
         }
     </style>
 </head>
@@ -292,6 +317,7 @@
         function effectiveBucket(row, limitMin, extMap, now) {
             const cp = statusBucket(row.status);
             if (cp === "available") return "available";
+            if (cp === "complete") return "complete";
             const deadline = policyDeadlineMs(row, limitMin, extMap);
             if (deadline == null) return cp;
             if (now >= deadline) return "complete";
@@ -349,7 +375,22 @@
         }
 
         /** Simple side-view cars. Orange = within window; red = time to move. */
-        function carSvg(variant, mode = "charging") {
+        const TONES = {
+            ok: { fill: "#22c55e", cls: "car-ok" },
+            done: { fill: "#ef4444", cls: "car-done" },
+            over: { fill: "#facc15", cls: "car-over" },
+        };
+
+        /** Tone: done = red (ChargePoint says finished; always wins); over = yellow (charging past the time limit); ok = green. */
+        function rowTone(r, now) {
+            if (r.eff === "available") return null;
+            if (r.cpBucket === "complete") return "done";
+            if (r.deadlineMs != null && now >= r.deadlineMs) return "over";
+            return "ok";
+        }
+
+        /** Simple side-view cars. */
+        function carSvg(variant, tone = "ok") {
             const bodies = [
                 "M8 38h104c4 0 8-3 8-8V22c0-6-5-11-11-11H25l-8-6H8v33z M28 18h72v12H28z",
                 "M6 36h108l6-4c3-2 5-5 5-9V20c0-7-6-12-13-12H22l-6-5H6v33z M30 16h68v14H30z",
@@ -357,20 +398,19 @@
             ];
             const wheels = "M22 44h10v6H22zm66 0h10v6H88z";
             const v = bodies[variant] || bodies[0];
-            const overdue = mode === "overdue";
-            const fill = overdue ? "#dc2626" : "#ea580c";
-            const cls = overdue ? "car-overdue" : "car-charging";
-            return `<svg viewBox="0 0 120 52" class="w-full h-auto max-h-[7rem] mx-auto ${cls}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <path fill="${fill}" d="${v}"/>
+            const t = TONES[tone] || TONES.ok;
+            return `<svg viewBox="0 0 120 52" class="car w-full h-auto max-h-[9rem] mx-auto ${t.cls}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path fill="${t.fill}" d="${v}"/>
                 <path fill="#0a0a0a" d="${wheels}"/>
                 <path fill="#292524" opacity="0.35" d="M38 20h44v8H38z"/>
             </svg>`;
         }
 
-        function stallStatusLabel(bucket) {
+        function stallStatusLabel(bucket, tone) {
             if (bucket === "available") return { text: "Open", class: "text-stone-500" };
-            if (bucket === "charging") return { text: "Charging", class: "text-samtec-orange font-semibold" };
-            if (bucket === "complete") return { text: "Complete", class: "text-orange-300" };
+            if (tone === "over") return { text: "Over limit", class: "text-yellow-400 font-bold" };
+            if (tone === "done") return { text: "Done", class: "text-red-400 font-bold" };
+            if (tone === "ok") return { text: "Charging", class: "text-green-400 font-bold" };
             return { text: "Unknown", class: "text-stone-500" };
         }
 
@@ -391,59 +431,59 @@
                     const n = idx + 1;
                     if (!r) {
                         return `
-                    <div class="rounded-lg border-2 border-dashed border-stone-700 bg-samtec-asphalt p-3 flex flex-col min-h-[11rem] stall-lines">
-                        <div class="text-[10px] tracking-widest text-stone-600 uppercase mb-1">Spot ${n}</div>
+                    <div class="rounded-lg border-2 border-dashed border-stone-700 bg-samtec-asphalt p-3 flex flex-col min-h-[14rem] stall-lines">
+                        <div class="text-xs tracking-widest text-stone-600 uppercase mb-1">Spot ${n}</div>
                         <div class="flex-1 flex items-center justify-center text-stone-600 text-xs">—</div>
                     </div>`;
                     }
                     const bucket = r.eff;
                     const cpBucket = r.cpBucket;
                     const label = r.portLabel ? `${r.title} · ${r.portLabel}` : r.title;
-                    const { text: stText, class: stClass } = stallStatusLabel(bucket);
+                    const tone = rowTone(r, Date.now());
+                    const { text: stText, class: stClass } = stallStatusLabel(bucket, tone);
                     const showCar = bucket === "charging" || bucket === "complete";
-                    const isOverdue = bucket === "complete";
+                    const isOverdue = tone === "over" || tone === "done";
                     const variant = carVariantForKey(r.key);
-                    const cpEarly =
-                        bucket === "charging" && cpBucket === "complete"
-                            ? `<div class="text-[10px] text-stone-500 text-center mt-1 leading-tight">ChargePoint: session complete · co-op timer still running</div>`
-                            : "";
+                    const cpEarly = "";
                     const idleHint = bucket === "available" ? "No vehicle" : "";
                     const resetButton = `<button type="button" data-reset-key="${escAttr(
                         r.key
-                    )}" class="absolute top-0 left-0 z-10 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border border-stone-600 text-stone-400 hover:border-sky-400 hover:text-sky-300 bg-black/60">Reset</button>`;
+                    )}" class="absolute top-0 left-0 z-10 text-xs uppercase tracking-wide px-2 py-0.5 rounded border border-stone-600 text-stone-400 hover:border-sky-400 hover:text-sky-300 bg-black/60">Reset</button>`;
                     const statusButton = isOverdue
-                        ? `<div class="absolute top-0 right-0 z-10 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border border-red-500 text-red-300 bg-black/70">Move</div>`
+                        ? `<div class="absolute top-0 right-0 z-10 text-xs uppercase tracking-wide px-2 py-0.5 rounded border ${tone === "over" ? "border-yellow-400 text-yellow-300" : "border-red-500 text-red-300"} bg-black/70">Move</div>`
                         : `<button type="button" data-extend-key="${escAttr(
                               r.key
-                          )}" class="absolute top-0 right-0 z-10 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border border-stone-500 text-stone-300 hover:border-samtec-orange hover:text-samtec-orange bg-black/60">Extend</button>`;
+                          )}" class="absolute top-0 right-0 z-10 text-xs uppercase tracking-wide px-2 py-0.5 rounded border border-stone-500 text-stone-300 hover:border-samtec-orange hover:text-samtec-orange bg-black/60">Extend</button>`;
                     const carHtml = showCar
                         ? `<div class="relative w-full pt-5">${resetButton}${statusButton}${carSvg(
                               variant,
-                              isOverdue ? "overdue" : "charging"
+                              tone
                           )}</div>`
-                        : `<div class="flex-1 flex items-center justify-center text-stone-600 text-[11px] px-1 text-center">${idleHint}</div>`;
+                        : `<div class="flex-1 flex items-center justify-center text-stone-600 text-sm px-1 text-center">${idleHint}</div>`;
                     const ext = extMap[r.key];
                     const extLine =
                         ext && ext.by
-                            ? `<div class="text-[10px] text-stone-500 text-center mt-1">Extended by ${escAttr(ext.by)}</div>`
+                            ? `<div class="text-xs text-stone-500 text-center mt-1">Extended by ${escAttr(ext.by)}</div>`
                             : "";
                     const sessionStartMs = parseIsoToMs(r.sessionStartedAt);
                     const hereLine =
                         bucket !== "available" && Number.isFinite(sessionStartMs)
-                            ? `<div class="text-[10px] text-stone-500 text-center mt-1">Here · ${formatDuration(
+                            ? `<div class="text-xs text-stone-500 text-center mt-1">Here · ${formatDuration(
                                   Date.now() - sessionStartMs
                               )}</div>`
                             : "";
 
                     return `
                 <div class="rounded-lg border-2 ${
-                    isOverdue
-                        ? "border-red-600 shadow-[0_0_22px_rgba(220,38,38,0.3)]"
-                        : showCar
-                          ? "border-samtec-orange shadow-[0_0_20px_rgba(234,88,12,0.25)]"
-                          : "border-stone-700"
-                } bg-samtec-asphalt p-3 flex flex-col min-h-[11rem] relative">
-                    <div class="text-[10px] tracking-widest text-stone-500 uppercase mb-1 truncate" title="${escAttr(label)}">Spot ${n}</div>
+                    tone === "over"
+                        ? "border-yellow-400 shadow-[0_0_22px_rgba(250,204,21,0.3)]"
+                        : tone === "done"
+                          ? "border-red-600 shadow-[0_0_22px_rgba(220,38,38,0.3)]"
+                          : tone === "ok"
+                            ? "border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.25)]"
+                            : "border-stone-700"
+                } bg-samtec-asphalt p-3 flex flex-col min-h-[14rem] relative">
+                    <div class="text-xs tracking-widest text-stone-500 uppercase mb-1 truncate" title="${escAttr(label)}">Spot ${n}</div>
                     <div class="text-xs text-stone-400 mb-2 line-clamp-2 min-h-[2rem]">${escAttr(label)}</div>
                     <div class="flex-1 flex flex-col justify-center stall-lines rounded min-h-[5.5rem] px-1">${carHtml}</div>
                     ${cpEarly}
