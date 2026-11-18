@@ -76,6 +76,9 @@
         }
         body.kiosk-mode header { margin-bottom: 1rem; padding-bottom: 0.75rem; }
         body.kiosk-mode section { margin-bottom: 1rem; }
+        /* No trailing fill below the last section, so the page never overflows the screen */
+        body.kiosk-mode section:last-of-type { margin-bottom: 0; }
+        body.kiosk-mode #main-wrap { padding-bottom: 0.25rem; }
         /* Higher-contrast text for viewing from across the room */
         body.kiosk-mode .text-stone-400,
         body.kiosk-mode .text-stone-500,
