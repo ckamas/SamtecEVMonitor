@@ -152,12 +152,9 @@ def _session_occupancy_bucket(label: str) -> str:
 
 
 def enrich_stations_with_port_sessions(
-    prev_root: Dict[str, Any], stations: Dict[str, Any], reset_map: Dict[str, Any]
-) -> List[str]:
-    """
-    Attach port_sessions.started_at per port when occupied; clear when available.
-    Returns /slot_extensions keys (deviceId-portId) to delete when a port frees up.
-    """
+    prev_root: Dict[str, Any], stations: Dict[str, Any]
+) -> None:
+    """Attach port_sessions.started_at per port when occupied; clear when available."""
     prev_root = prev_root or {}
     prev_stations: Dict[str, Any] = {
         k: v
@@ -165,7 +162,6 @@ def enrich_stations_with_port_sessions(
         if k not in ("last_updated", "charging_limit_minutes") and isinstance(v, dict)
     }
     now_iso = datetime.now(timezone.utc).isoformat()
-    ext_clear: List[str] = []
 
     for sid, entry in list(stations.items()):
         if not isinstance(entry, dict) or entry.get("error"):
@@ -188,8 +184,6 @@ def enrich_stations_with_port_sessions(
             is_occ = _session_occupancy_bucket(label_s) == "occupied"
 
             if not is_occ:
-                if was_occ or pk_s in prev_sess:
-                    ext_clear.append(f"{sid}-{pk_s}")
                 continue
 
             old_start = (prev_sess.get(pk_s) or {}).get("started_at")
@@ -198,23 +192,12 @@ def enrich_stations_with_port_sessions(
             else:
                 started_at = old_start
 
-            reset = reset_map.get(f"{sid}-{pk_s}") if isinstance(reset_map, dict) else None
-            if isinstance(reset, dict):
-                reset_ms = reset.get("at_ms")
-                reset_iso = str(reset.get("at") or "")
-                if isinstance(reset_ms, (int, float)) and reset_ms > _iso_to_utc_ms(started_at):
-                    started_at = reset_iso or datetime.fromtimestamp(
-                        reset_ms / 1000, tz=timezone.utc
-                    ).isoformat()
-
             new_sess[pk_s] = {"started_at": started_at}
 
         if new_sess:
             entry["port_sessions"] = new_sess
         elif "port_sessions" in entry:
             del entry["port_sessions"]
-
-    return ext_clear
 
 
 def _iso_to_utc_ms(iso: str) -> int:
@@ -232,25 +215,16 @@ def _policy_deadline_ms(
     pk_s: str,
     started_at: str,
     limit_minutes: int,
-    ext_map: Dict[str, Any],
 ) -> int:
     start_ms = _iso_to_utc_ms(started_at)
     if start_ms <= 0:
         return 0
-    base = start_ms + limit_minutes * 60 * 1000
-    slot_key = f"{sid}-{pk_s}"
-    ext = ext_map.get(slot_key) if isinstance(ext_map, dict) else None
-    if isinstance(ext, dict):
-        um = ext.get("until_ms")
-        if isinstance(um, (int, float)) and um > 0:
-            return int(um)
-    return base
+    return start_ms + limit_minutes * 60 * 1000
 
 
 def enrich_policy_complete_since(
     prev_root: Dict[str, Any],
     stations: Dict[str, Any],
-    ext_map: Dict[str, Any],
     limit_minutes: int,
 ) -> None:
     """
@@ -287,7 +261,7 @@ def enrich_policy_complete_since(
             if _session_occupancy_bucket(label_s) != "occupied":
                 continue
             deadline = _policy_deadline_ms(
-                str(sid), str(pk_s), str(started), limit_minutes, ext_map
+                str(sid), str(pk_s), str(started), limit_minutes
             )
             if deadline <= 0:
                 continue
@@ -513,20 +487,14 @@ async def main() -> None:
         ref = db.reference("/stations")
         prev_root = ref.get() or {}
         payload = await poll_once(client, station_ids, home_ids)
-        reset_map = db.reference("/slot_resets").get() or {}
-        if not isinstance(reset_map, dict):
-            reset_map = {}
-        cleared_ext_keys = enrich_stations_with_port_sessions(prev_root, payload, reset_map)
+        enrich_stations_with_port_sessions(prev_root, payload)
         limit_raw = (os.getenv("CHARGING_LIMIT_MINUTES") or "120").strip()
         try:
             charging_limit_minutes = max(1, int(limit_raw))
         except ValueError:
             charging_limit_minutes = 120
 
-        ext_map = db.reference("/slot_extensions").get() or {}
-        if not isinstance(ext_map, dict):
-            ext_map = {}
-        enrich_policy_complete_since(prev_root, payload, ext_map, charging_limit_minutes)
+        enrich_policy_complete_since(prev_root, payload, charging_limit_minutes)
 
         last_updated = datetime.now(timezone.utc).isoformat()
         root_payload: Dict[str, Any] = {
@@ -537,16 +505,6 @@ async def main() -> None:
         logger.info("Writing %d station(s) to Firebase…", len(payload))
         ref.set(root_payload)
 
-        if cleared_ext_keys:
-            ext_root = db.reference("/slot_extensions")
-            reset_root = db.reference("/slot_resets")
-            for key in dict.fromkeys(cleared_ext_keys):
-                try:
-                    # null value in update removes the child (works across firebase-admin versions).
-                    ext_root.update({key: None})
-                    reset_root.update({key: None})
-                except Exception as exc:
-                    logger.warning("Could not clear per-slot metadata for %s: %s", key, exc)
         logger.info(
             "Updated /stations (last_updated=%s): %s",
             last_updated,

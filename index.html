@@ -129,25 +129,9 @@
         </section>
     </div>
 
-    <!-- Extend charging window -->
-    <div id="extend-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" aria-hidden="true">
-        <div class="w-full max-w-sm rounded-lg border border-stone-600 bg-stone-900 p-5 shadow-xl">
-            <h3 class="text-sm font-semibold text-samtec-orange uppercase tracking-widest mb-3">Extend window</h3>
-            <p class="text-xs text-stone-500 mb-4">Adds time from now or from your current deadline, whichever is later. Others will see who extended.</p>
-            <label class="block text-xs text-stone-400 mb-1">Your name</label>
-            <input id="extend-name" type="text" maxlength="80" class="w-full mb-3 px-3 py-2 rounded bg-black border border-stone-600 text-stone-200 text-sm" placeholder="e.g. Jordan" />
-            <label class="block text-xs text-stone-400 mb-1">Extra minutes</label>
-            <input id="extend-minutes" type="number" min="15" max="480" value="120" class="w-full mb-4 px-3 py-2 rounded bg-black border border-stone-600 text-stone-200 text-sm" />
-            <div class="flex justify-end gap-2">
-                <button type="button" id="extend-cancel" class="px-3 py-1.5 text-xs rounded border border-stone-600 text-stone-400 hover:bg-stone-800">Cancel</button>
-                <button type="button" id="extend-save" class="px-3 py-1.5 text-xs rounded bg-samtec-orange text-black font-semibold hover:opacity-90">Save</button>
-            </div>
-        </div>
-    </div>
-
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-        import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
+        import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCMLfdk0kPpl3g_BjVkuUOLlivS25jZAQw",
@@ -163,8 +147,6 @@
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
         const stationsRef = ref(db, "/stations");
-        const extensionsRef = ref(db, "/slot_extensions");
-        const resetsRef = ref(db, "/slot_resets");
 
         const params = new URLSearchParams(window.location.search);
         const isKiosk =
@@ -181,19 +163,10 @@
         const statusSummaryEl = document.getElementById("status-summary");
         const completeListEl = document.getElementById("complete-list");
         const parkingLotEl = document.getElementById("parking-lot");
-        const extendModal = document.getElementById("extend-modal");
-        const extendNameInput = document.getElementById("extend-name");
-        const extendMinutesInput = document.getElementById("extend-minutes");
-        const extendSaveBtn = document.getElementById("extend-save");
-        const extendCancelBtn = document.getElementById("extend-cancel");
-
         const completeSince = new Map();
         const STALL_COUNT = 4;
 
         let lastStationPayload = null;
-        let lastExtMap = {};
-        let lastResetMap = {};
-        let pendingExtendKey = null;
 
         function normStatus(s) {
             return String(s || "").trim().toLowerCase();
@@ -304,56 +277,44 @@
             return NaN;
         }
 
-        function policyDeadlineMs(row, limitMin, extMap) {
+        function policyDeadlineMs(row, limitMin) {
             const start = parseIsoToMs(row.sessionStartedAt);
             if (!Number.isFinite(start)) return null;
             const base = start + limitMin * 60 * 1000;
-            const ext = extMap[row.key];
-            if (ext && typeof ext.until_ms === "number" && Number.isFinite(ext.until_ms)) return ext.until_ms;
             return base;
         }
 
         /** Lot + “complete” list use co-op policy; falls back to ChargePoint if no session clock yet. */
-        function effectiveBucket(row, limitMin, extMap, now) {
+        function effectiveBucket(row, limitMin, now) {
             const cp = statusBucket(row.status);
             if (cp === "available") return "available";
             if (cp === "complete") return "complete";
-            const deadline = policyDeadlineMs(row, limitMin, extMap);
+            const deadline = policyDeadlineMs(row, limitMin);
             if (deadline == null) return cp;
             if (now >= deadline) return "complete";
             if (cp === "charging" || cp === "complete") return "charging";
             return cp;
         }
 
-        function annotateRows(stations, extMap, resetMap, now) {
+        function annotateRows(stations, now) {
             const limitMin = Number(stations?.charging_limit_minutes);
             const lim = Number.isFinite(limitMin) && limitMin > 0 ? limitMin : 120;
             const stable = flattenPortsStable(stations);
             return stable.map((r) => {
                 const cpBucket = statusBucket(r.status);
-                const reset = resetMap && typeof resetMap === "object" ? resetMap[r.key] : null;
-                const resetMs =
-                    reset && typeof reset.at_ms === "number" && Number.isFinite(reset.at_ms)
-                        ? reset.at_ms
-                        : NaN;
-                const startMs = parseIsoToMs(r.sessionStartedAt);
-                const sessionStartedAt =
-                    Number.isFinite(resetMs) && (!Number.isFinite(startMs) || resetMs > startMs)
-                        ? reset.at || new Date(resetMs).toISOString()
-                        : r.sessionStartedAt;
-                const row = { ...r, sessionStartedAt };
+                const row = r;
                 return {
                     ...row,
                     cpBucket,
-                    eff: effectiveBucket(row, lim, extMap, now),
-                    deadlineMs: policyDeadlineMs(row, lim, extMap),
+                    eff: effectiveBucket(row, lim, now),
+                    deadlineMs: policyDeadlineMs(row, lim),
                     limitMin: lim,
                 };
             });
         }
 
-        function flattenPortsSortedByStatus(stations, extMap, resetMap, now) {
-            const rows = annotateRows(stations, extMap, resetMap, now);
+        function flattenPortsSortedByStatus(stations, now) {
+            const rows = annotateRows(stations, now);
             const order = { available: 0, charging: 1, complete: 2, other: 3 };
             rows.sort(
                 (a, b) =>
@@ -389,20 +350,39 @@
             return "ok";
         }
 
-        /** Simple side-view cars. */
+        const CAR_BODY = `<path d="M6 64V54Q6 50 11 49L26 46L36 36Q39 33 44 33H64Q70 33 74 37L84 46L92 48Q96 49 96 53V64Z"/>`;
+        const CAR_WHEELS = `<circle cx="28" cy="64" r="8" fill="#0a0a0a"/><circle cx="74" cy="64" r="8" fill="#0a0a0a"/>`;
+        const BOLT = (x, y, k) =>
+            `<path transform="translate(${x} ${y}) scale(${k})" d="M4 0L-4 12H1L-1 22L8 8H3Z"/>`;
+
+        /**
+         * Outline icons in the tone color.
+         *  - "done" (red): car at a charger with a FULL battery above it.
+         *  - "ok" (green) / "over" (yellow): car plugged into a charger, bolt on the car, no battery.
+         */
         function carSvg(variant, tone = "ok") {
-            const bodies = [
-                "M8 38h104c4 0 8-3 8-8V22c0-6-5-11-11-11H25l-8-6H8v33z M28 18h72v12H28z",
-                "M6 36h108l6-4c3-2 5-5 5-9V20c0-7-6-12-13-12H22l-6-5H6v33z M30 16h68v14H30z",
-                "M10 37h100c5 0 10-4 10-10v-8c0-6-5-10-11-10H26l-7-5h-9v33z M32 17h64v13H32z",
-            ];
-            const wheels = "M22 44h10v6H22zm66 0h10v6H88z";
-            const v = bodies[variant] || bodies[0];
             const t = TONES[tone] || TONES.ok;
-            return `<svg viewBox="0 0 120 52" class="car w-full h-auto max-h-[9rem] mx-auto ${t.cls}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <path fill="${t.fill}" d="${v}"/>
-                <path fill="#0a0a0a" d="${wheels}"/>
-                <path fill="#292524" opacity="0.35" d="M38 20h44v8H38z"/>
+            const attrs = `viewBox="0 0 128 76" class="car h-[7.5rem] w-auto mx-auto ${t.cls}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"
+                fill="none" stroke="${t.fill}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"`;
+            if (tone === "done") {
+                return `<svg ${attrs}>
+                <rect x="18" y="6" width="28" height="16" rx="3"/>
+                <path d="M49 11v6" stroke-width="4"/>
+                <rect x="21.5" y="9.5" width="21" height="9" fill="${t.fill}" stroke="none"/>
+                <g fill="#0a0a0a" stroke="none">${BOLT(32, 8.5, 0.4)}</g>
+                ${CAR_WHEELS}${CAR_BODY}
+                <path d="M38 46L45 37H52V46ZM57 37H64Q67 37 70 40L76 46H57Z"/>
+                <rect x="108" y="24" width="12" height="40" rx="6"/>
+                <rect x="103" y="64" width="22" height="6" rx="1"/>
+                <path d="M108 38H103Q99 38 99 42V58Q99 61 96 61"/>
+            </svg>`;
+            }
+            return `<svg ${attrs}>
+                <rect x="4" y="12" width="12" height="52"/>
+                <rect x="1" y="64" width="18" height="6"/>
+                <path d="M16 30H21Q25 30 25 34V56Q25 59 28 59"/>
+                <g transform="translate(124 0) scale(-1 1)">${CAR_WHEELS}${CAR_BODY}</g>
+                <g fill="${t.fill}" stroke="none">${BOLT(70, 38, 1)}</g>
             </svg>`;
         }
 
@@ -421,7 +401,7 @@
                 .replace(/</g, "&lt;");
         }
 
-        function renderParkingLot(slots, extMap) {
+        function renderParkingLot(slots) {
             if (slots.every((s) => s === null)) {
                 parkingLotEl.innerHTML = `<div class="col-span-full text-sm text-stone-500 py-8 text-center border border-dashed border-stone-600 rounded-lg">No station data.</div>`;
                 return;
@@ -446,25 +426,15 @@
                     const variant = carVariantForKey(r.key);
                     const cpEarly = "";
                     const idleHint = bucket === "available" ? "No vehicle" : "";
-                    const resetButton = `<button type="button" data-reset-key="${escAttr(
-                        r.key
-                    )}" class="absolute top-0 left-0 z-10 text-xs uppercase tracking-wide px-2 py-0.5 rounded border border-stone-600 text-stone-400 hover:border-sky-400 hover:text-sky-300 bg-black/60">Reset</button>`;
                     const statusButton = isOverdue
                         ? `<div class="absolute top-0 right-0 z-10 text-xs uppercase tracking-wide px-2 py-0.5 rounded border ${tone === "over" ? "border-yellow-400 text-yellow-300" : "border-red-500 text-red-300"} bg-black/70">Move</div>`
-                        : `<button type="button" data-extend-key="${escAttr(
-                              r.key
-                          )}" class="absolute top-0 right-0 z-10 text-xs uppercase tracking-wide px-2 py-0.5 rounded border border-stone-500 text-stone-300 hover:border-samtec-orange hover:text-samtec-orange bg-black/60">Extend</button>`;
+                        : "";
                     const carHtml = showCar
-                        ? `<div class="relative w-full pt-5">${resetButton}${statusButton}${carSvg(
+                        ? `<div class="relative w-full pt-5">${statusButton}${carSvg(
                               variant,
                               tone
                           )}</div>`
                         : `<div class="flex-1 flex items-center justify-center text-stone-600 text-sm px-1 text-center">${idleHint}</div>`;
-                    const ext = extMap[r.key];
-                    const extLine =
-                        ext && ext.by
-                            ? `<div class="text-xs text-stone-500 text-center mt-1">Extended by ${escAttr(ext.by)}</div>`
-                            : "";
                     const sessionStartMs = parseIsoToMs(r.sessionStartedAt);
                     const hereLine =
                         bucket !== "available" && Number.isFinite(sessionStartMs)
@@ -489,7 +459,6 @@
                     ${cpEarly}
                     <div class="mt-2 text-center text-xs ${stClass}">${stText}</div>
                     ${hereLine}
-                    ${extLine}
                 </div>`;
                 })
                 .join("");
@@ -633,14 +602,12 @@
                 return;
             }
             lastPollerIso = data.last_updated ?? null;
-            const ext = lastExtMap && typeof lastExtMap === "object" ? lastExtMap : {};
-            const resets = lastResetMap && typeof lastResetMap === "object" ? lastResetMap : {};
             const now = Date.now();
-            const annotatedStable = annotateRows(data, ext, resets, now);
+            const annotatedStable = annotateRows(data, now);
             const slots = stallSlotsFromRows(annotatedStable);
             updateStatusSummary(slots);
-            renderParkingLot(slots, ext);
-            lastRowsSorted = flattenPortsSortedByStatus(data, ext, resets, now);
+            renderParkingLot(slots);
+            lastRowsSorted = flattenPortsSortedByStatus(data, now);
             updateCompleteTracking(lastRowsSorted);
             renderCompleteList(lastRowsSorted);
             refreshLiveIndicator();
@@ -658,113 +625,6 @@
                 liveLabel.textContent = "error";
             }
         );
-
-        onValue(
-            extensionsRef,
-            (snap) => {
-                lastExtMap = snap.val() || {};
-                if (lastStationPayload) renderFromCache();
-            },
-            (err) => {
-                console.error(err);
-            }
-        );
-
-        onValue(
-            resetsRef,
-            (snap) => {
-                lastResetMap = snap.val() || {};
-                if (lastStationPayload) renderFromCache();
-            },
-            (err) => {
-                console.error(err);
-            }
-        );
-
-        parkingLotEl.addEventListener("click", (e) => {
-            const resetBtn = e.target.closest("[data-reset-key]");
-            if (resetBtn) {
-                const key = resetBtn.getAttribute("data-reset-key");
-                if (!key) return;
-                const ok = confirm("Reset this spot's timer because a new car just parked here?");
-                if (!ok) return;
-                const now = Date.now();
-                set(ref(db, `slot_resets/${key}`), {
-                    at: new Date(now).toISOString(),
-                    at_ms: now,
-                })
-                    .then(() => set(ref(db, `slot_extensions/${key}`), null))
-                    .catch((err) => {
-                        console.error(err);
-                        alert(
-                            "Could not reset timer. In Firebase Realtime Database rules, allow read/write for /slot_resets."
-                        );
-                    });
-                return;
-            }
-
-            const btn = e.target.closest("[data-extend-key]");
-            if (!btn) return;
-            const key = btn.getAttribute("data-extend-key");
-            if (!key) return;
-            pendingExtendKey = key;
-            extendNameInput.value = "";
-            extendMinutesInput.value = "120";
-            extendModal.classList.remove("hidden");
-            extendModal.setAttribute("aria-hidden", "false");
-            extendNameInput.focus();
-        });
-
-        function closeExtendModal() {
-            pendingExtendKey = null;
-            extendModal.classList.add("hidden");
-            extendModal.setAttribute("aria-hidden", "true");
-        }
-
-        extendCancelBtn.addEventListener("click", closeExtendModal);
-        extendModal.addEventListener("click", (e) => {
-            if (e.target === extendModal) closeExtendModal();
-        });
-
-        extendSaveBtn.addEventListener("click", async () => {
-            if (!pendingExtendKey) return;
-            const name = extendNameInput.value.trim();
-            const extra = Math.min(480, Math.max(15, parseInt(extendMinutesInput.value, 10) || 120));
-            if (!name) {
-                alert("Enter your name.");
-                return;
-            }
-            if (!lastStationPayload) return;
-            const rows = annotateRows(lastStationPayload, lastExtMap || {}, lastResetMap || {}, Date.now());
-            const row = rows.find((r) => r.key === pendingExtendKey);
-            if (!row) {
-                alert("Spot not found.");
-                return;
-            }
-            const start = parseIsoToMs(row.sessionStartedAt);
-            if (!Number.isFinite(start)) {
-                alert("Session clock not ready yet — wait for the next poller run (up to ~5 min).");
-                return;
-            }
-            const base = start + row.limitMin * 60 * 1000;
-            const prev = (lastExtMap || {})[row.key] || {};
-            const anchor = typeof prev.until_ms === "number" && prev.until_ms > 0 ? prev.until_ms : base;
-            const newUntil = Math.max(anchor, Date.now()) + extra * 60 * 1000;
-            try {
-                await set(ref(db, `slot_extensions/${row.key}`), {
-                    by: name,
-                    at: new Date().toISOString(),
-                    extra_minutes: extra,
-                    until_ms: newUntil,
-                });
-                closeExtendModal();
-            } catch (err) {
-                console.error(err);
-                alert(
-                    "Could not save extension. In Firebase Realtime Database rules, allow read/write for /slot_extensions (see database.rules.json in this repo)."
-                );
-            }
-        });
 
         setInterval(() => {
             if (lastStationPayload) renderFromCache();

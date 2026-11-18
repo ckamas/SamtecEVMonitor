@@ -3,14 +3,6 @@
     "stations": {
       ".read": true,
       ".write": false
-    },
-    "slot_extensions": {
-      ".read": true,
-      ".write": true
-    },
-    "slot_resets": {
-      ".read": true,
-      ".write": true
     }
   }
 }

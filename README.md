@@ -11,8 +11,8 @@ Live site: <https://samtec-ev.xyz> (see `CNAME`). Add `?kiosk=1` to the URL for 
 
 ```
 ChargePoint API ──► poller.py ──► Firebase RTDB (/stations) ──► index.html (browser)
-   (coulomb_sess                    also reads /slot_resets
-    session token)                  and /slot_extensions
+   (coulomb_sess
+    session token)
 ```
 
 - `poller.py` – one poll per run: fetches each station in `CHARGEPOINT_STATION_IDS`, tracks
