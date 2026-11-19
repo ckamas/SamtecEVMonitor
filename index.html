@@ -343,12 +343,18 @@
             ok: { fill: "#22c55e", cls: "car-ok" },
             done: { fill: "#ef4444", cls: "car-done" },
             over: { fill: "#facc15", cls: "car-over" },
+            late: { fill: "#ef4444", cls: "car-done" },
         };
+
+        /** Plugged in this long (since session start) => icon turns red. */
+        const LATE_MS = 3 * 60 * 60 * 1000;
 
         /** Tone: done = red (ChargePoint says finished; always wins); over = yellow (charging past the time limit); ok = green. */
         function rowTone(r, now) {
             if (r.eff === "available") return null;
             if (r.cpBucket === "complete") return "done";
+            const start = parseIsoToMs(r.sessionStartedAt);
+            if (Number.isFinite(start) && now >= start + LATE_MS) return "late";
             if (r.deadlineMs != null && now >= r.deadlineMs) return "over";
             return "ok";
         }
@@ -392,6 +398,7 @@
         function stallStatusLabel(bucket, tone) {
             if (bucket === "available") return { text: "Open", class: "text-stone-500" };
             if (tone === "over") return { text: "Over limit", class: "text-yellow-400 font-bold" };
+            if (tone === "late") return { text: "Over 3 hrs", class: "text-red-400 font-bold" };
             if (tone === "done") return { text: "Done", class: "text-red-400 font-bold" };
             if (tone === "ok") return { text: "Charging", class: "text-green-400 font-bold" };
             return { text: "Unknown", class: "text-stone-500" };
@@ -425,7 +432,7 @@
                     const tone = rowTone(r, Date.now());
                     const { text: stText, class: stClass } = stallStatusLabel(bucket, tone);
                     const showCar = bucket === "charging" || bucket === "complete";
-                    const isOverdue = tone === "over" || tone === "done";
+                    const isOverdue = tone === "over" || tone === "done" || tone === "late";
                     const variant = carVariantForKey(r.key);
                     const cpEarly = "";
                     const idleHint = bucket === "available" ? "No vehicle" : "";
@@ -448,7 +455,9 @@
 
                     return `
                 <div class="rounded-lg border-2 ${
-                    tone === "over"
+                    tone === "late"
+                      ? "border-red-600 shadow-[0_0_22px_rgba(220,38,38,0.3)]"
+                      : tone === "over"
                         ? "border-yellow-400 shadow-[0_0_22px_rgba(250,204,21,0.3)]"
                         : tone === "done"
                           ? "border-red-600 shadow-[0_0_22px_rgba(220,38,38,0.3)]"
