@@ -61,6 +61,12 @@
                 rgba(68, 64, 60, 0.5) 10px
             );
         }
+        /* Poller has not updated for a while (likely an expired ChargePoint token): grey everything out */
+        body.stale #parking-lot,
+        body.stale #complete-list { filter: grayscale(1); opacity: 0.45; }
+        body.stale #status-summary { color: #a8a29e; }
+        #stale-banner { display: none; }
+        body.stale #stale-banner { display: inline-block; }
         /* TV / wall: add ?kiosk=1 to the URL */
         /* Scale all rem-based sizes with the screen width (24px at 1920 wide) and use the full width. */
         html:has(body.kiosk-mode) {
@@ -124,6 +130,7 @@
             <div class="flex items-center gap-2 mt-3 text-sm text-stone-400">
                 <span id="live-dot" class="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0"></span>
                 <span id="live-label">connecting…</span>
+                <span id="stale-banner" class="ml-2 px-2 py-0.5 rounded border border-stone-500 bg-stone-700 text-stone-200 font-bold uppercase tracking-wide">Old data — token may be expired</span>
             </div>
         </header>
 
@@ -576,6 +583,7 @@
 
         function refreshLiveIndicator() {
             const t = parseLastUpdated(lastPollerIso);
+            document.body.classList.toggle("stale", !Number.isNaN(t) && Date.now() - t > OFFLINE_MS);
             if (Number.isNaN(t)) {
                 liveDot.className = "w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0 animate-pulse";
                 liveLabel.textContent =
@@ -596,8 +604,8 @@
                 liveDot.className = "w-2.5 h-2.5 rounded-full bg-samtec-orange shrink-0";
                 liveLabel.textContent = `Delayed · ${detail}`;
             } else {
-                liveDot.className = "w-2.5 h-2.5 rounded-full bg-red-600 shrink-0";
-                liveLabel.textContent = `Offline · ${detail}`;
+                liveDot.className = "w-2.5 h-2.5 rounded-full bg-stone-500 shrink-0";
+                liveLabel.textContent = `Stale · ${detail}`;
             }
         }
 
