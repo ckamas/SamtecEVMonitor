@@ -38,6 +38,30 @@ The token only needs replacing when polling has been interrupted for longer than
 the poller logs `Saved session token was rejected`, or the Action fails, or the site's
 "last updated" time stops advancing.
 
+## Optional: admin-portal session detail
+
+The public map API only reports port *status*. With a ChargePoint **org admin** login
+(read-only is enough) the poller can also show, per occupied port: the **real session start
+time** (instead of "first seen"), **amps / kWh**, and the **driver's initials**.
+
+`admin_sessions.py` reads `https://na.chargepoint.com/index.php/station_info_view/<id>` (GET only)
+and parses its Sessions section. `poller.py` merges the result into `port_sessions` after the
+normal poll; if the admin cookies are missing or expired it logs a warning and carries on exactly
+as before. Only public stations are looked up (not Home Flex).
+
+- **Enable:** log in at <https://na.chargepoint.com>, DevTools → Network → right-click the
+  `station_info_view/...` request → *Copy as cURL*, and either save that to a file and set
+  `CHARGEPOINT_ADMIN_COOKIE_FILE`, or set `CHARGEPOINT_ADMIN_COOKIE` (CI secret). Treat it like a password.
+- **Lifetime:** the portal re-issues `auth-session` every response (2h), like `coulomb_sess`; the
+  poller saves the rotated values to `CHARGEPOINT_ADMIN_STATE_PATH` and prefers them next run, falling
+  back to the seed cookies. Re-capture only if you see `Admin portal session expired` in the logs.
+- **Try it:** `./venv/bin/python admin_sessions.py <station_id> ...` (prints initials only).
+- **Privacy:** only initials are stored; the driver's name, username and email are never written.
+  Note `/stations` in the RTDB is world-readable (`database.rules.json`), so the initials, amps and
+  kWh are public wherever the site is.
+- **Fragility:** this scrapes HTML, so a portal redesign makes it fail (logged, non-fatal) until
+  `admin_sessions.py` is updated; `python -m unittest test_admin_sessions` covers the parser.
+
 ## Updating the token
 
 ### 1. Get a fresh token
@@ -105,6 +129,9 @@ Environment variables (see `.env.example`; `.env` and `firebase-key.json` are gi
 | `FIREBASE_KEY` | Service-account JSON as a string (used on CI) |
 | `FIREBASE_CREDENTIALS_PATH` | Service-account file path (default `firebase-key.json`) |
 | `CHARGING_LIMIT_MINUTES` | Co-op charging window, default `120` |
+| `CHARGEPOINT_ADMIN_COOKIE` | *Optional.* Admin-portal cookies (see below); enables start time / amps / initials |
+| `CHARGEPOINT_ADMIN_COOKIE_FILE` | *Optional.* Same, read from a file (a bare cookie string or a "Copy as cURL" paste) |
+| `CHARGEPOINT_ADMIN_STATE_PATH` | Where rotated admin cookies are persisted (default `~/.chargepoint_admin_cookie_state`) |
 
 GitHub Actions secrets used by the workflow: `CHARGEPOINT_USER`, `CHARGEPOINT_PASS`,
 `CHARGEPOINT_SESSION_TOKEN`, `CHARGEPOINT_STATION_IDS`, `FIREBASE_DATABASE_URL`, `FIREBASE_KEY`.

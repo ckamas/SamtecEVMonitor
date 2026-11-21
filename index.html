@@ -250,6 +250,22 @@
             return out;
         }
 
+        /** Optional numeric field from a port_sessions entry; NaN when absent. */
+        function sessNum(sess, key) {
+            if (!sess || typeof sess !== "object" || sess[key] == null || sess[key] === "") return NaN;
+            const n = Number(sess[key]);
+            return Number.isFinite(n) ? n : NaN;
+        }
+
+        /** "CK · 30 A · 6.6 kWh" from admin-portal detail; "" when the poller has none. */
+        function sessionDetailLine(r) {
+            const parts = [];
+            if (r.driverInitials) parts.push(r.driverInitials);
+            if (Number.isFinite(r.currentA)) parts.push(`${r.currentA.toFixed(r.currentA >= 10 ? 0 : 1)} A`);
+            if (Number.isFinite(r.energyKwh)) parts.push(`${r.energyKwh.toFixed(1)} kWh`);
+            return parts.join(" · ");
+        }
+
         /** Rows in stable order (device id, port) — no status sort (for fixed parking stalls). */
         function flattenPortsStable(stations) {
             const rows = [];
@@ -271,6 +287,10 @@
                         sort: statusBucket(entry.station_status),
                         sessionStartedAt: null,
                         policyCompleteSince: null,
+                        driverInitials: "",
+                        currentA: NaN,
+                        powerKw: NaN,
+                        energyKwh: NaN,
                     });
                 } else {
                     for (const pk of keys) {
@@ -290,6 +310,13 @@
                             sort: statusBucket(ports[pk]),
                             sessionStartedAt,
                             policyCompleteSince,
+                            driverInitials:
+                                sess && typeof sess === "object" && sess.driver_initials
+                                    ? String(sess.driver_initials)
+                                    : "",
+                            currentA: sessNum(sess, "current_a"),
+                            powerKw: sessNum(sess, "power_kw"),
+                            energyKwh: sessNum(sess, "energy_kwh"),
                         });
                     }
                 }
@@ -490,6 +517,11 @@
                               )}</div>`
                             : "";
 
+                    const detail = bucket !== "available" ? sessionDetailLine(r) : "";
+                    const detailLine = detail
+                        ? `<div class="text-xs text-stone-400 text-center mt-0.5">${escAttr(detail)}</div>`
+                        : "";
+
                     return `
                 <div class="rounded-lg border-2 ${
                     tone === "late"
@@ -508,6 +540,7 @@
                     ${cpEarly}
                     <div class="mt-2 text-center text-xs ${stClass}">${stText}</div>
                     ${hereLine}
+                    ${detailLine}
                 </div>`;
                 })
                 .join("");
@@ -540,7 +573,8 @@
                     const tabMs = completeSince.get(r.key) ?? Date.now();
                     const started = Number.isFinite(policyMs) ? policyMs : tabMs;
                     const over = formatDuration(Date.now() - started);
-                    const label = r.portLabel ? `${r.title} (${r.portLabel})` : r.title;
+                    const base = r.portLabel ? `${r.title} (${r.portLabel})` : r.title;
+                    const label = r.driverInitials ? `${base} · ${r.driverInitials}` : base;
                     return `
                 <div class="flex justify-between gap-3 px-4 py-1.5 border-b border-stone-800 last:border-0 complete-row bg-black/20" data-key="${escAttr(
                     r.key

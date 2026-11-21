@@ -21,6 +21,8 @@ jobs:
           CHARGEPOINT_PASS: ${{ secrets.CHARGEPOINT_PASS }}
           CHARGEPOINT_SESSION_TOKEN: ${{ secrets.CHARGEPOINT_SESSION_TOKEN }}
           CHARGEPOINT_STATION_IDS: ${{ secrets.CHARGEPOINT_STATION_IDS }}
+          # Optional: admin-portal cookies for start time / amps / driver initials (see README).
+          CHARGEPOINT_ADMIN_COOKIE: ${{ secrets.CHARGEPOINT_ADMIN_COOKIE }}
           FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
           FIREBASE_KEY: ${{ secrets.FIREBASE_KEY }}
         run: /opt/homebrew/bin/python3.11 poller.py

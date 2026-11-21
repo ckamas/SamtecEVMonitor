@@ -16,6 +16,10 @@ export FIREBASE_CREDENTIALS_PATH="$APP/firebase-key.json"
 export FIREBASE_DATABASE_EMULATOR_HOST="127.0.0.1:$PORT_DB"
 export FIREBASE_DATABASE_URL="http://127.0.0.1:$PORT_DB/?ns=$PROJECT"
 export CHARGEPOINT_TOKEN_STATE_PATH="$STATE/session_token"
+# Optional admin-portal detail (start time / amps / driver initials). Seed cookies are
+# pushed to $STATE/admin_cookie; the poller keeps the rotated copy in admin_cookie_state.
+export CHARGEPOINT_ADMIN_STATE_PATH="$STATE/admin_cookie_state"
+[ -s "$STATE/admin_cookie" ] && export CHARGEPOINT_ADMIN_COOKIE_FILE="$STATE/admin_cookie"
 
 log() { printf '%s [run] %s\n' "$(date +%H:%M:%S)" "$*"; }
 EMU="" WEB=""

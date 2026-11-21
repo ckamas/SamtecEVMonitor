@@ -21,6 +21,7 @@ import aiohttp
 import firebase_admin
 from firebase_admin import credentials, db
 
+import admin_sessions
 from python_chargepoint import ChargePoint
 from python_chargepoint.exceptions import (
     DatadomeCaptcha,
@@ -216,6 +217,55 @@ def enrich_stations_with_port_sessions(
             entry["port_sessions"] = new_sess
         elif "port_sessions" in entry:
             del entry["port_sessions"]
+
+
+def enrich_stations_with_admin_sessions(
+    stations: Dict[str, Any],
+    admin: Dict[str, Dict[str, Dict[str, Any]]],
+    now: datetime | None = None,
+) -> None:
+    """
+    Merge admin-portal session details into stations[sid]["port_sessions"][port].
+
+    The public status stays authoritative for *whether* a port is occupied; admin
+    data only adds detail to ports that already have a session entry. The portal's
+    real start time replaces the poller's "first seen" guess (which is late for cars
+    that were already plugged in when polling began).
+    """
+    now = now or datetime.now(timezone.utc)
+    observed = now.isoformat()
+    for sid, ports in (admin or {}).items():
+        entry = stations.get(str(sid))
+        if not isinstance(entry, dict) or entry.get("error"):
+            continue
+        psessions = entry.get("port_sessions")
+        if not isinstance(psessions, dict):
+            continue
+        for pk, adm in (ports or {}).items():
+            sub = psessions.get(str(pk))
+            if not isinstance(sub, dict):
+                continue  # port not occupied per public status: ignore stale admin row
+            started = adm.get("started_at")
+            if started:
+                try:
+                    start_ms = _iso_to_utc_ms(started)
+                except ValueError:
+                    start_ms = 0
+                # Reject unparseable or future start times (clock/zone mistakes).
+                if 0 < start_ms <= int(now.timestamp() * 1000) + 5 * 60 * 1000:
+                    sub["started_at"] = started
+                    sub["started_source"] = "admin"
+            for src, dst in (
+                ("driver_initials", "driver_initials"),
+                ("energy_kwh", "energy_kwh"),
+                ("power_kw", "power_kw"),
+                ("voltage_v", "voltage_v"),
+                ("current_a", "current_a"),
+            ):
+                val = adm.get(src)
+                if val not in (None, ""):
+                    sub[dst] = val
+            sub["admin_observed_at"] = observed
 
 
 def _iso_to_utc_ms(iso: str) -> int:
@@ -519,6 +569,48 @@ async def get_client(username: str, password: str, session_token: str) -> Charge
     return client
 
 
+async def fetch_admin_sessions(
+    payload: Dict[str, Any],
+) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    """
+    Optional admin-portal detail (start time, amps, driver initials) for public
+    stations. Returns {} when not configured or on any failure: the normal poll must
+    never break because of this extra source.
+    """
+    try:
+        seed = admin_sessions.load_seed_auth_from_env()
+    except admin_sessions.AdminPortalError as exc:
+        logger.warning("Admin portal cookies unusable: %s", exc)
+        return {}
+    if seed is None:
+        return {}
+    ids = [
+        int(sid)
+        for sid, entry in payload.items()
+        if isinstance(entry, dict)
+        and not entry.get("error")
+        and entry.get("source") == "public"
+        and str(sid).isdigit()
+    ]
+    try:
+        result = await asyncio.to_thread(
+            admin_sessions.fetch_sessions_for_stations, ids, seed
+        )
+    except admin_sessions.AdminSessionExpired as exc:
+        logger.warning(
+            "Admin portal session expired (%s). Capture fresh cookies from "
+            "na.chargepoint.com and update CHARGEPOINT_ADMIN_COOKIE / "
+            "CHARGEPOINT_ADMIN_COOKIE_FILE; continuing without admin details.",
+            exc,
+        )
+        return {}
+    except Exception as exc:  # parsing/network surprises must not kill the poll
+        logger.warning("Admin portal fetch failed: %s", exc)
+        return {}
+    logger.info("Admin portal detail read for %d station(s).", len(result))
+    return result
+
+
 async def main() -> None:
     # GitHub Actions / secrets (primary)
     username = (os.getenv("CHARGEPOINT_USER") or "").strip()
@@ -556,6 +648,7 @@ async def main() -> None:
         prev_root = ref.get() or {}
         payload = await poll_once(client, station_ids, home_ids)
         enrich_stations_with_port_sessions(prev_root, payload)
+        enrich_stations_with_admin_sessions(payload, await fetch_admin_sessions(payload))
         limit_raw = (os.getenv("CHARGING_LIMIT_MINUTES") or "120").strip()
         try:
             charging_limit_minutes = max(1, int(limit_raw))
