@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Fetch ChargePoint station status once and push to Firebase Realtime Database (/stations).
-Intended for GitHub Actions on a schedule (cron); run locally by setting the same env vars.
+Run in a loop on the Raspberry Pi (RPI/payload/run.sh) or locally by setting the same env vars.
 """
 
 from __future__ import annotations
@@ -612,7 +612,7 @@ async def fetch_admin_sessions(
 
 
 async def main() -> None:
-    # GitHub Actions / secrets (primary)
+    # Configuration from the environment (.env locally, the Pi's env files on the kiosk)
     username = (os.getenv("CHARGEPOINT_USER") or "").strip()
     password = os.getenv("CHARGEPOINT_PASS") or ""
     session_token = (os.getenv("CHARGEPOINT_SESSION_TOKEN") or "").strip()

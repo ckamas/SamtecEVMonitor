@@ -5,7 +5,7 @@ status of each port, and writes it to a Firebase Realtime Database (RTDB). A sta
 (`index.html`) subscribes to the database and shows each stall as Available / Charging /
 Complete, with a co-op charging-time limit (default 120 min) and overdue highlighting.
 
-Live site: <https://samtec-ev.xyz> (see `CNAME`). Add `?kiosk=1` to the URL for TV/wall display.
+Add `?kiosk=1` to the page URL for TV/wall display.
 
 ## How it works
 
@@ -17,10 +17,9 @@ ChargePoint API ──► poller.py ──► Firebase RTDB (/stations) ──�
 
 - `poller.py` – one poll per run: fetches each station in `CHARGEPOINT_STATION_IDS`, tracks
   per-port session start times, computes policy-deadline state, writes `/stations`.
-- `index.html` – the UI (Tailwind via CDN, Firebase JS SDK). Static; the `CNAME` file suggests GitHub Pages hosting.
-- `.github/workflows/poll.yml` – runs the poller every 5 minutes on a **self-hosted macOS ARM64 runner**.
-- `RPI/` – an alternative fully offline deployment: a Raspberry Pi kiosk running a local RTDB
-  emulator, the poller loop, and Chromium full-screen.
+- `index.html` – the UI (Tailwind via CDN, Firebase JS SDK). Static, served locally.
+- `RPI/` – the deployment: a Raspberry Pi kiosk running a local RTDB emulator, the poller
+  loop, and Chromium full-screen.
 - `run-local.sh`, `run-emulator.sh`, `run-poller.sh` – local development against the Firebase emulator.
 - `database.rules.json`, `firebase.json` – RTDB rules and emulator config.
 
@@ -34,9 +33,8 @@ response; the poller saves the rotated value after each successful run
 alive as long as it polls more often than every ~2 hours.
 
 The token only needs replacing when polling has been interrupted for longer than that
-(machine off, network down, runner offline) or ChargePoint invalidates the session. Symptoms:
-the poller logs `Saved session token was rejected`, or the Action fails, or the site's
-"last updated" time stops advancing.
+(machine off, network down) or ChargePoint invalidates the session. Symptoms:
+the poller logs `Saved session token was rejected`, or the page's "last updated" time stops advancing.
 
 ## Optional: admin-portal session detail
 
@@ -51,14 +49,14 @@ as before. Only public stations are looked up (not Home Flex).
 
 - **Enable:** log in at <https://na.chargepoint.com>, DevTools → Network → right-click the
   `station_info_view/...` request → *Copy as cURL*, and either save that to a file and set
-  `CHARGEPOINT_ADMIN_COOKIE_FILE`, or set `CHARGEPOINT_ADMIN_COOKIE` (CI secret). Treat it like a password.
+  `CHARGEPOINT_ADMIN_COOKIE_FILE`, or set `CHARGEPOINT_ADMIN_COOKIE`. Treat it like a password.
 - **Lifetime:** the portal re-issues `auth-session` every response (2h), like `coulomb_sess`; the
   poller saves the rotated values to `CHARGEPOINT_ADMIN_STATE_PATH` and prefers them next run, falling
   back to the seed cookies. Re-capture only if you see `Admin portal session expired` in the logs.
 - **Try it:** `./venv/bin/python admin_sessions.py <station_id> ...` (prints initials only).
 - **Privacy:** only initials are stored; the driver's name, username and email are never written.
-  Note `/stations` in the RTDB is world-readable (`database.rules.json`), so the initials, amps and
-  kWh are public wherever the site is.
+  Note `/stations` is world-readable under `database.rules.json`, so anyone who can reach the
+  database (on the Pi, its local network) can read the initials, amps and kWh.
 - **Fragility:** this scrapes HTML, so a portal redesign makes it fail (logged, non-fatal) until
   `admin_sessions.py` is updated; `python -m unittest test_admin_sessions` covers the parser.
 
@@ -74,26 +72,7 @@ as before. Only public stations are looked up (not Home Flex).
 
 Treat it like a password – anyone with it can act as your ChargePoint account.
 
-### 2a. GitHub Actions (self-hosted runner)
-
-The workflow reads the `CHARGEPOINT_SESSION_TOKEN` repository secret.
-
-```bash
-gh secret set CHARGEPOINT_SESSION_TOKEN --repo ckamas/SamtecEVMonitor
-# paste the token when prompted, then Ctrl-D
-```
-
-Or: GitHub → Settings → Secrets and variables → Actions → `CHARGEPOINT_SESSION_TOKEN` → Update.
-
-Then trigger a run immediately: Actions → "ChargePoint Poller" → **Run workflow**
-(or `gh workflow run poll.yml`).
-
-> Note: `poller.py` prefers `CHARGEPOINT_SESSION_TOKEN` (if non-empty) over the rotated token
-> saved on the runner at `~/.chargepoint_session_token`. If you would rather let the runner's
-> saved, auto-rotating token take over, clear the secret and write the fresh token to that file
-> on the runner instead.
-
-### 2b. Raspberry Pi kiosk
+### 2a. Raspberry Pi kiosk
 
 Any of these; the Pi notices the new token within ~5 seconds and polls immediately.
 
@@ -108,7 +87,7 @@ Any of these; the Pi notices the new token within ~5 seconds and polls immediate
   ```
 - **Manually**: write the token to `/var/lib/chargepoint/session_token` on the Pi.
 
-### 2c. Local development
+### 2b. Local development
 
 Put the token in `.env` as `CHARGEPOINT_SESSION_TOKEN=...`, or write it to
 `~/.chargepoint_session_token` (what `run-local.sh` checks for a fresh login), then re-run
@@ -126,15 +105,12 @@ Environment variables (see `.env.example`; `.env` and `firebase-key.json` are gi
 | `CHARGEPOINT_STATION_IDS` | Comma-separated ChargePoint device IDs (required) |
 | `CHARGEPOINT_TOKEN_STATE_PATH` | Where the rotated token is persisted (default `~/.chargepoint_session_token`) |
 | `FIREBASE_DATABASE_URL` | RTDB URL (required) |
-| `FIREBASE_KEY` | Service-account JSON as a string (used on CI) |
+| `FIREBASE_KEY` | Service-account JSON as a string (alternative to the key file) |
 | `FIREBASE_CREDENTIALS_PATH` | Service-account file path (default `firebase-key.json`) |
 | `CHARGING_LIMIT_MINUTES` | Co-op charging window, default `120` |
 | `CHARGEPOINT_ADMIN_COOKIE` | *Optional.* Admin-portal cookies (see below); enables start time / amps / initials |
 | `CHARGEPOINT_ADMIN_COOKIE_FILE` | *Optional.* Same, read from a file (a bare cookie string or a "Copy as cURL" paste) |
 | `CHARGEPOINT_ADMIN_STATE_PATH` | Where rotated admin cookies are persisted (default `~/.chargepoint_admin_cookie_state`) |
-
-GitHub Actions secrets used by the workflow: `CHARGEPOINT_USER`, `CHARGEPOINT_PASS`,
-`CHARGEPOINT_SESSION_TOKEN`, `CHARGEPOINT_STATION_IDS`, `FIREBASE_DATABASE_URL`, `FIREBASE_KEY`.
 
 ## Running locally
 

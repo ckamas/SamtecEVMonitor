@@ -206,7 +206,7 @@ def load_cookie_header(path: str) -> Dict[str, str]:
 def load_seed_auth_from_env() -> Optional[Dict[str, str]]:
     """
     Seed credentials, or None when the admin integration is not configured.
-    CHARGEPOINT_ADMIN_COOKIE (value, for CI secrets) wins over
+    CHARGEPOINT_ADMIN_COOKIE (value) wins over
     CHARGEPOINT_ADMIN_COOKIE_FILE.
     """
     value = (os.environ.get("CHARGEPOINT_ADMIN_COOKIE") or "").strip()

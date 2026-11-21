@@ -98,7 +98,6 @@ log "login OK, session token refreshed at $TOKEN_FILE"
 sed -E "s#databaseURL: \"[^\"]*\"#databaseURL: \"http://127.0.0.1:$EMULATOR_PORT/?ns=$PROJECT\"#" \
   index.html >"$SERVE_DIR/index.html"
 grep -q "127.0.0.1:$EMULATOR_PORT" "$SERVE_DIR/index.html" || die "failed to patch databaseURL in index.html"
-cp -f CNAME "$SERVE_DIR/" 2>/dev/null
 ./venv/bin/python -m http.server "$WEB_PORT" --bind 127.0.0.1 --directory "$SERVE_DIR" \
   >"$LOGDIR/web.log" 2>&1 &
 WEB_PID=$!
