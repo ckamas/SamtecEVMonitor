@@ -10,7 +10,7 @@ BOOT="${BOOT:-/media/$USER/bootfs}"
 
 D="$BOOT/chargepoint"
 mkdir -p "$D"
-cp poller.py index.html requirements.txt database.rules.json "$D/"
+cp poller.py admin_sessions.py index.html requirements.txt database.rules.json "$D/"
 cp tools/firebase/package.json tools/firebase/package-lock.json "$D/"
 cp RPI/payload/{install.sh,run.sh,kiosk.sh,screen.sh,token_server.py,firebase.json} "$D/"
 cp .env "$D/env"

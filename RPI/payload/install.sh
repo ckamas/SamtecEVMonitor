@@ -19,7 +19,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   default-jre-headless nodejs npm python3-venv openssl cec-utils
 
 mkdir -p "$APP/tools/firebase" "$STATE"
-cp "$SRC"/{poller.py,index.html,requirements.txt,database.rules.json,token_server.py,run.sh,kiosk.sh,screen.sh} "$APP/"
+cp "$SRC"/{poller.py,admin_sessions.py,index.html,requirements.txt,database.rules.json,token_server.py,run.sh,kiosk.sh,screen.sh} "$APP/"
 cp "$SRC"/firebase.json "$APP/"
 cp "$SRC"/package.json "$SRC"/package-lock.json "$APP/tools/firebase/"
 cp "$SRC"/env "$APP/.env"

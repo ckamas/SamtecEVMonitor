@@ -413,6 +413,9 @@
         /** Plugged in this long (since session start) => icon turns red. */
         const LATE_MS = 3 * 60 * 60 * 1000;
 
+        /** At or above this many amps a car counts as still actively charging. */
+        const ACTIVE_AMPS_MIN = 7;
+
         /** Tone: done = red (ChargePoint says finished; always wins); over = yellow (charging past the time limit); ok = green. */
         function rowTone(r, now) {
             if (r.eff === "available") return null;
@@ -512,7 +515,7 @@
                     const sessionStartMs = parseIsoToMs(r.sessionStartedAt);
                     const hereLine =
                         bucket !== "available" && Number.isFinite(sessionStartMs)
-                            ? `<div class="text-xs text-stone-500 text-center mt-1">Here · ${formatDuration(
+                            ? `<div class="text-xs text-stone-500 text-center mt-1">Plugged in ${formatDuration(
                                   Date.now() - sessionStartMs
                               )}</div>`
                             : "";
@@ -575,12 +578,18 @@
                     const over = formatDuration(Date.now() - started);
                     const base = r.portLabel ? `${r.title} (${r.portLabel})` : r.title;
                     const label = r.driverInitials ? `${base} · ${r.driverInitials}` : base;
+                    // Past the time limit but ChargePoint still reports charging and the car is drawing
+                    // current: over time, not actually finished charging.
+                    const overTime =
+                        r.cpBucket !== "complete" && Number.isFinite(r.currentA) && r.currentA >= ACTIVE_AMPS_MIN;
+                    const tag = overTime ? "Over time" : "Complete";
+                    const tagCls = overTime ? "text-yellow-300" : "text-orange-400";
                     return `
                 <div class="flex justify-between gap-3 px-4 py-1.5 border-b border-stone-800 last:border-0 complete-row bg-black/20" data-key="${escAttr(
                     r.key
                 )}">
                     <span class="text-stone-300 text-sm">${escAttr(label)}</span>
-                    <span class="text-orange-400 font-semibold text-sm shrink-0 complete-duration">Complete · ${over}</span>
+                    <span class="${tagCls} font-semibold text-sm shrink-0 complete-duration">${tag} · ${over}</span>
                 </div>`;
                 })
                 .join("");
