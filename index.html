@@ -574,7 +574,13 @@
                 .map((r) => {
                     const policyMs = parseIsoToMs(r.policyCompleteSince);
                     const tabMs = completeSince.get(r.key) ?? Date.now();
-                    const started = Number.isFinite(policyMs) ? policyMs : tabMs;
+                    // Time over = now minus (session start + limit), i.e. plugged-in time minus the limit.
+                    // Fall back to when the poller/tab first saw it over when the start time is unknown.
+                    const started = Number.isFinite(r.deadlineMs)
+                        ? r.deadlineMs
+                        : Number.isFinite(policyMs)
+                          ? policyMs
+                          : tabMs;
                     const over = formatDuration(Date.now() - started);
                     const base = r.portLabel ? `${r.title} (${r.portLabel})` : r.title;
                     const label = r.driverInitials ? `${base} · ${r.driverInitials}` : base;
