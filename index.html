@@ -49,9 +49,16 @@
             0%, 100% { filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.9)); opacity: 1; }
             50% { filter: drop-shadow(0 0 14px rgba(74, 222, 128, 1)); opacity: 0.95; }
         }
-        .car-ok { animation: ok-pulse 2s ease-in-out infinite; }
-        .car-done { animation: done-pulse 1.35s ease-in-out infinite; }
-        .car-over { animation: over-pulse 1.35s ease-in-out infinite; }
+        /* Car graphics: static glow, no pulsing. */
+        .car-ok { filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.9)); }
+        .car-done { filter: drop-shadow(0 0 8px rgba(185, 28, 28, 0.95)); }
+        .car-over { filter: drop-shadow(0 0 8px rgba(250, 204, 21, 0.95)); }
+        /* The "Move" badge on a stall card pulses instead. */
+        @keyframes move-pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 4px 0 currentColor; }
+            50% { opacity: 0.45; box-shadow: 0 0 14px 2px currentColor; }
+        }
+        .move-badge { animation: move-pulse 1.2s ease-in-out infinite; }
         .stall-lines {
             background-image: repeating-linear-gradient(
                 90deg,
@@ -504,7 +511,7 @@
                     const cpEarly = "";
                     const idleHint = bucket === "available" ? "No vehicle" : "";
                     const statusButton = isOverdue
-                        ? `<div class="absolute top-0 right-0 z-10 text-xs uppercase tracking-wide px-2 py-0.5 rounded border ${tone === "over" ? "border-yellow-400 text-yellow-300" : "border-red-700 text-red-500"} bg-black/70">Move</div>`
+                        ? `<div class="move-badge absolute top-0 right-0 z-10 text-xs uppercase tracking-wide px-2 py-0.5 rounded border ${tone === "over" ? "border-yellow-400 text-yellow-300" : "border-red-700 text-red-500"} bg-black/70">Move</div>`
                         : "";
                     const carHtml = showCar
                         ? `<div class="relative w-full pt-5">${statusButton}${carSvg(
